@@ -16,7 +16,7 @@ weight_decay: 0.01
 adam_epsilon: 1e-8
 max_grad_norm: 1.0
 use_gpu: True                # use gpu or not
-gpu_id: 1
+gpu_id: 0
 local_rank: -1
 seed: 42
 gradient_accumulation_steps: 1
