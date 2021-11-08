@@ -17,6 +17,7 @@ from tqdm import tqdm, trange
 from seqeval.metrics import classification_report
 import hydra
 from hydra import utils
+from torch.utils.tensorboard import SummaryWriter
 from deepke.name_entity_re.standard import *
 
 logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
@@ -56,6 +57,7 @@ class TrainNer(BertForTokenClassification):
 
 @hydra.main(config_path="conf", config_name='config')
 def main(cfg):
+    summarywriter = SummaryWriter()
     
     # Use gpu or not
     if cfg.use_gpu and torch.cuda.is_available():
@@ -98,7 +100,6 @@ def main(cfg):
     config = BertConfig.from_pretrained(cfg.bert_model, num_labels=num_labels, finetuning_task=cfg.task_name)
     model = TrainNer.from_pretrained(cfg.bert_model,from_tf = False,config = config)
     model.to(device)
-
     param_optimizer = list(model.named_parameters())
     no_decay = ['bias','LayerNorm.weight']
     optimizer_grouped_parameters = [
@@ -122,12 +123,10 @@ def main(cfg):
         all_lmask_ids = torch.tensor([f.label_mask for f in train_features], dtype=torch.long)
         train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids,all_valid_ids,all_lmask_ids)
         train_sampler = RandomSampler(train_data)
-        
         train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=cfg.train_batch_size)
-
         model.train()
 
-        for _ in trange(int(cfg.num_train_epochs), desc="Epoch"):
+        for epoch in trange(int(cfg.num_train_epochs), desc="Epoch"):
             tr_loss = 0
             nb_tr_examples, nb_tr_steps = 0, 0
             for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
@@ -136,7 +135,7 @@ def main(cfg):
                 loss = model(input_ids, segment_ids, input_mask, label_ids,valid_ids,l_mask)
                 if cfg.gradient_accumulation_steps > 1:
                     loss = loss / cfg.gradient_accumulation_steps
-    
+                print('loss:'+str(loss.item()))
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.max_grad_norm)
 
@@ -148,6 +147,9 @@ def main(cfg):
                     scheduler.step()  # Update learning rate schedule
                     model.zero_grad()
                     global_step += 1
+            tr_loss = tr_loss/step
+            summarywriter.add_scalar("loss/train/", tr_loss, global_step=epoch)
+
 
         # Save a trained model and the associated configuration
         model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
